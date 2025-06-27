@@ -10,7 +10,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.catch
 import javax.inject.Inject
+import timber.log.Timber
 
 data class MapState(
     val strikes: List<LightningStrike> = emptyList(),
@@ -40,10 +42,15 @@ class MapViewModel @Inject constructor(
     }
 
     private fun observeLiveStrikes() {
-        getLiveStrikesUseCase().onEach { newStrike ->
-            _state.value = _state.value.copy(
-                strikes = _state.value.strikes + newStrike
-            )
-        }.launchIn(viewModelScope)
+        getLiveStrikesUseCase()
+            .onEach { newStrike ->
+                _state.value = _state.value.copy(
+                    strikes = _state.value.strikes + newStrike
+                )
+            }
+            .catch { error ->
+                Timber.e(error, "Error observing live strikes")
+            }
+            .launchIn(viewModelScope)
     }
 } 

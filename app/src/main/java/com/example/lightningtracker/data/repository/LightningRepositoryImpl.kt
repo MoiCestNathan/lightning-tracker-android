@@ -10,7 +10,7 @@ import com.example.lightningtracker.domain.model.LightningStrike
 import com.example.lightningtracker.domain.repository.LightningRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.transform
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -21,6 +21,10 @@ class LightningRepositoryImpl @Inject constructor(
     private val writeDao: LightningWriteDao
 ) : LightningRepository {
 
+    init {
+        feedClient.connect()
+    }
+
     override fun getHistoricalStrikes(): Flow<List<LightningStrike>> {
         return readDao.getStrikes().map { entities ->
             entities.map { it.toDomainModel() }
@@ -28,13 +32,11 @@ class LightningRepositoryImpl @Inject constructor(
     }
 
     override fun getLiveStrikes(): Flow<LightningStrike> {
-        feedClient.connect()
-        return feedClient.strikes.map { result ->
-            result.getOrThrow()
-        }.onEach { dto ->
-            writeDao.insertStrike(dto.toDomainModel().toEntity())
-        }.map { dto ->
-            dto.toDomainModel()
+        return feedClient.strikes.transform { result ->
+            result.onSuccess { dto ->
+                writeDao.insertStrike(dto.toDomainModel().toEntity())
+                emit(dto.toDomainModel())
+            }
         }
     }
 
