@@ -60,6 +60,10 @@ object NetworkModule {
                         hostname == "ws2.blitzortung.org" ||
                         hostname == "ws3.blitzortung.org" ||
                         hostname == "ws4.blitzortung.org" ||
+                        hostname == "ws5.blitzortung.org" ||
+                        hostname == "ws6.blitzortung.org" ||
+                        hostname == "ws7.blitzortung.org" ||
+                        hostname == "ws8.blitzortung.org" ||
                         hostname == "map.blitzortung.org"
             }
             .sslSocketFactory(sslSocketFactory, trustManager)

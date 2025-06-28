@@ -34,40 +34,71 @@ class BlitzortungFeedClient @Inject constructor(
     val strikes: SharedFlow<Result<LightningStrikeDto>> = _strikes
 
     private fun buildServerList() {
+        val knownServers = listOf(
+            "ws1.blitzortung.org",
+            "ws2.blitzortung.org",
+            "ws3.blitzortung.org",
+            "ws4.blitzortung.org",
+            "ws5.blitzortung.org",
+            "ws6.blitzortung.org",
+            "ws7.blitzortung.org",
+            "ws8.blitzortung.org"
+        )
+
         val serverUrls = mutableListOf<String>()
-        val ports = (8050..8090).shuffled()
-        for (port in ports) {
-            for (i in 1..4) {
-                serverUrls.add("wss://ws$i.blitzortung.org:$port/")
+        // Add standard port 443 for all servers
+        for (host in knownServers) {
+            serverUrls.add("wss://$host:443/")
+        }
+
+        // Add specific port ranges
+        val portRanges = mapOf(
+            "ws1.blitzortung.org" to (8050..8053),
+            "ws2.blitzortung.org" to (8060..8063),
+            "ws3.blitzortung.org" to (8070..8073),
+            "ws4.blitzortung.org" to (8080..8083),
+            "ws5.blitzortung.org" to (8090..8093),
+            "ws6.blitzortung.org" to (8050..8053),
+            "ws7.blitzortung.org" to (8060..8063),
+            "ws8.blitzortung.org" to (8070..8073)
+        )
+
+        for ((host, ports) in portRanges) {
+            for (port in ports) {
+                serverUrls.add("wss://$host:$port/")
             }
         }
         servers = serverUrls.shuffled()
         Timber.d("Built new server list with ${servers.size} total endpoints.")
     }
 
-    private fun decode(data: ByteArray): String {
-        val e = mutableMapOf<Int, String>()
-        val d = data.map { it.toInt() and 0xff } // Ensure bytes are treated as unsigned
-        if (d.isEmpty()) return ""
-        var c = d[0]
-        var f = c
-        val g = mutableListOf<String>()
-        g.add(c.toChar().toString())
-        var h = 256
-        for (i in 1 until d.size) {
-            val byteVal = d[i]
-            val aStr = e[byteVal] ?: if (h > byteVal) {
-                byteVal.toChar().toString()
+    private fun decode(data: String): String {
+        if (data.isEmpty()) return ""
+
+        val dict = mutableMapOf<Int, String>()
+        val result = mutableListOf<String>()
+
+        var oldPhrase = data[0].toString()
+        result.add(oldPhrase)
+        var currChar = oldPhrase
+
+        var code = 256
+
+        for (i in 1 until data.length) {
+            val currCode = data[i].code
+            val phrase = if (currCode < 256) {
+                data[i].toString()
             } else {
-                (f.toChar().toString() + c.toChar())
+                dict[currCode] ?: (oldPhrase + currChar)
             }
-            g.add(aStr)
-            c = aStr[0].code
-            e[h] = f.toChar().toString() + c.toChar()
-            h++
-            f = byteVal
+            result.add(phrase)
+            currChar = phrase[0].toString()
+            dict[code] = oldPhrase + currChar
+            code++
+            oldPhrase = phrase
         }
-        return g.joinToString("")
+
+        return result.joinToString("")
     }
 
     private val webSocketListener = object : WebSocketListener() {
@@ -77,11 +108,13 @@ class BlitzortungFeedClient @Inject constructor(
             webSocket.send("""{"a":111}""")
         }
 
-        override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-            val decodedData = decode(bytes.toByteArray())
+        override fun onMessage(webSocket: WebSocket, text: String) {
+            Timber.d("Received raw text message.")
+            // The server sends obfuscated data as a text string, so we need to decode it from here.
+            val decodedData = decode(text)
             Timber.d("Received decoded message: $decodedData")
             try {
-                val strike = moshi.adapter(LightningStrikeDto::class.java).fromJson(decodedData)
+                val strike = moshi.adapter(LightningStrikeDto::class.java).lenient().fromJson(decodedData)
                 if (strike != null) {
                     clientScope.launch {
                         _strikes.emit(Result.success(strike))
@@ -95,8 +128,14 @@ class BlitzortungFeedClient @Inject constructor(
             }
         }
 
+        override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+            // This is likely no longer used as data comes in as text, but we'll keep it for logging just in case.
+            Timber.d("Received unexpected binary message: ${bytes.hex()}")
+        }
+
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            Timber.e(t, "WebSocket failure on ${servers.getOrNull(currentServerIndex)}")
+            val url = servers.getOrNull(currentServerIndex) ?: "unknown URL"
+            Timber.e(t, "WebSocket failure on $url")
             clientScope.launch {
                 _strikes.emit(Result.failure(t))
             }
